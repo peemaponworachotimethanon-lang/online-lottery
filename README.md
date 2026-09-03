@@ -225,11 +225,15 @@ No database or Redis is required in mock mode.
 | `pnpm seed:reset` | Rebuild the seeded dataset and verify the ledger invariant |
 | `pnpm loadtest` | k6 peak-traffic scenario (requires k6 installed) |
 
-End-to-end smoke test (needs a running server):
+End-to-end smoke test (needs a running server). Playwright is intentionally not
+a declared dependency — it ships a browser-downloading postinstall that would
+slow every CI and Vercel install — so add it only when you want to run the smoke
+test:
 
 ```bash
+pnpm add -D playwright && pnpm exec playwright install chromium
 pnpm build && pnpm start -p 3111 &
-node scripts/smoke.mjs http://localhost:3111
+pnpm smoke http://localhost:3111
 ```
 
 ---
