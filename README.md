@@ -245,7 +245,7 @@ See `.env.example`. In mock mode only these matter:
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `NEXT_PUBLIC_APP_MODE` | no | `mock` (default) or `live` |
-| `NEXT_PUBLIC_APP_URL` | no | Absolute URL used in metadata |
+| `NEXT_PUBLIC_APP_URL` | no | Absolute URL used in metadata. On Vercel this is derived from the platform automatically — an empty or invalid value is treated as unset, never a build failure |
 | `AUTH_SECRET` | **in production** | ≥32 chars, HS256 signing key. `openssl rand -base64 48` |
 
 `DATABASE_URL`, `DIRECT_URL` and `REDIS_URL` are unused in mock mode and are
@@ -391,9 +391,14 @@ they never load on the betting path.
 2. Import the project in Vercel. The framework preset (Next.js), build command
    (`pnpm build`) and output are detected automatically.
 3. Set environment variables in **Project → Settings → Environment Variables**:
-   - `AUTH_SECRET` — required. `openssl rand -base64 48`
-   - `NEXT_PUBLIC_APP_URL` — your deployment URL
+   - `AUTH_SECRET` — **required**. `openssl rand -base64 48`. Without it, pages
+     render but signing in fails: the code refuses to fall back to a development
+     key in production.
    - `NEXT_PUBLIC_APP_MODE` — leave as `mock` for the demo
+   - `NEXT_PUBLIC_APP_URL` — optional; Vercel's own URL is used when it is absent
+
+   Environment variables only apply to builds that run *after* they are saved, so
+   redeploy once after adding them.
 4. Deploy.
 
 No database, Redis or queue worker is needed for the demo deployment. Read
