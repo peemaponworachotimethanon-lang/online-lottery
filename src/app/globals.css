@@ -1,0 +1,235 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Emerald Wealth — design tokens
+   เขียวเหนี่ยวทรัพย์
+   --------------------------------------------------------------------------
+   Primary   : emerald green      — primary actions, active nav, selected numbers
+   Secondary : deep forest green  — dark surfaces, headers
+   Accent    : champagne gold     — winnings, rewards, premium badges ONLY
+   Danger    : red                — destructive actions
+   Warning   : amber              — closing soon, pending review
+
+   Gold is deliberately scarce. It appears on prize amounts, winner badges, and
+   a small number of premium borders. It is never a default button colour and is
+   never used as low-contrast body text.
+   ========================================================================== */
+
+@theme {
+  --color-emerald-50: oklch(0.979 0.021 166);
+  --color-emerald-100: oklch(0.95 0.052 163);
+  --color-emerald-200: oklch(0.905 0.093 164);
+  --color-emerald-300: oklch(0.845 0.143 164);
+  --color-emerald-400: oklch(0.765 0.177 163);
+  --color-emerald-500: oklch(0.696 0.17 162);
+  --color-emerald-600: oklch(0.596 0.145 163);
+  --color-emerald-700: oklch(0.508 0.118 165);
+  --color-emerald-800: oklch(0.432 0.095 166);
+  --color-emerald-900: oklch(0.378 0.077 168);
+  --color-emerald-950: oklch(0.243 0.049 170);
+
+  --color-forest-700: oklch(0.36 0.058 168);
+  --color-forest-800: oklch(0.285 0.048 168);
+  --color-forest-900: oklch(0.221 0.038 169);
+  --color-forest-950: oklch(0.163 0.03 170);
+
+  --color-gold-200: oklch(0.93 0.06 90);
+  --color-gold-300: oklch(0.881 0.083 88);
+  --color-gold-400: oklch(0.83 0.104 86);
+  --color-gold-500: oklch(0.771 0.116 82);
+  --color-gold-600: oklch(0.667 0.108 78);
+  --color-gold-700: oklch(0.546 0.09 76);
+
+  --font-sans:
+    'Noto Sans Thai', 'IBM Plex Sans Thai', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    'Helvetica Neue', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+:root {
+  color-scheme: light;
+
+  --background: oklch(0.995 0.002 160);
+  --surface: oklch(1 0 0);
+  --surface-muted: oklch(0.976 0.006 165);
+  --surface-raised: oklch(1 0 0);
+
+  --foreground: oklch(0.21 0.02 170);
+  --muted-foreground: oklch(0.512 0.017 170);
+
+  --border: oklch(0.912 0.008 165);
+  --border-strong: oklch(0.85 0.012 165);
+  --input: oklch(0.912 0.008 165);
+  --ring: var(--color-emerald-600);
+
+  --primary: var(--color-emerald-600);
+  --primary-hover: var(--color-emerald-700);
+  --primary-foreground: oklch(1 0 0);
+  --primary-soft: var(--color-emerald-50);
+  --primary-soft-foreground: var(--color-emerald-800);
+
+  --accent: var(--color-gold-600);
+  --accent-foreground: oklch(0.28 0.04 80);
+  --accent-soft: oklch(0.972 0.03 92);
+
+  --danger: oklch(0.577 0.207 27);
+  --danger-foreground: oklch(1 0 0);
+  --danger-soft: oklch(0.968 0.03 25);
+
+  --warning: oklch(0.72 0.15 70);
+  --warning-foreground: oklch(0.3 0.08 70);
+  --warning-soft: oklch(0.976 0.035 85);
+
+  --success: var(--color-emerald-600);
+  --success-soft: var(--color-emerald-50);
+
+  --radius-card: 0.875rem;
+  --radius-control: 0.625rem;
+
+  --shadow-card: 0 1px 2px oklch(0.21 0.02 170 / 0.04), 0 1px 3px oklch(0.21 0.02 170 / 0.06);
+  --shadow-raised: 0 4px 12px oklch(0.21 0.02 170 / 0.07), 0 1px 3px oklch(0.21 0.02 170 / 0.05);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Deep green-black — never plain #000. */
+  --background: oklch(0.168 0.024 168);
+  --surface: oklch(0.204 0.028 168);
+  --surface-muted: oklch(0.188 0.026 168);
+  --surface-raised: oklch(0.238 0.031 168);
+
+  --foreground: oklch(0.955 0.008 165);
+  --muted-foreground: oklch(0.706 0.018 165);
+
+  --border: oklch(0.296 0.03 168);
+  --border-strong: oklch(0.36 0.035 168);
+  --input: oklch(0.296 0.03 168);
+  --ring: var(--color-emerald-400);
+
+  --primary: var(--color-emerald-500);
+  --primary-hover: var(--color-emerald-400);
+  --primary-foreground: oklch(0.163 0.03 170);
+  --primary-soft: oklch(0.268 0.045 168);
+  --primary-soft-foreground: var(--color-emerald-200);
+
+  --accent: var(--color-gold-400);
+  --accent-foreground: oklch(0.163 0.03 170);
+  --accent-soft: oklch(0.27 0.036 110);
+
+  --danger: oklch(0.637 0.207 27);
+  --danger-foreground: oklch(1 0 0);
+  --danger-soft: oklch(0.28 0.06 25);
+
+  --warning: oklch(0.78 0.14 75);
+  --warning-foreground: oklch(0.96 0.04 85);
+  --warning-soft: oklch(0.29 0.05 75);
+
+  --success: var(--color-emerald-400);
+  --success-soft: oklch(0.26 0.045 168);
+
+  --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-raised: 0 6px 20px oklch(0 0 0 / 0.35);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-raised: var(--surface-raised);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --radius-card: var(--radius-card);
+  --radius-control: var(--radius-control);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible, consistent focus for keyboard users everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Numeric data (money, numbers, countdowns) lines up in columns. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  ::selection {
+    background-color: var(--primary-soft);
+    color: var(--primary-soft-foreground);
+  }
+}
+
+@layer utilities {
+  .surface-card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* A single, restrained emerald wash — used once per page at most. */
+  .hero-wash {
+    background-image:
+      radial-gradient(60rem 32rem at 15% -10%, oklch(0.696 0.17 162 / 0.1), transparent 60%),
+      radial-gradient(48rem 28rem at 92% 4%, oklch(0.771 0.116 82 / 0.07), transparent 62%);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

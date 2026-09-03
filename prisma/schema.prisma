@@ -1,0 +1,592 @@
+// =============================================================================
+// Emerald Lottery Platform — production PostgreSQL schema
+// =============================================================================
+//
+// This file is the target production data model. The demo currently runs on the
+// in-memory provider (src/repositories/memory) which implements exactly the same
+// repository interfaces, so switching providers does not change any caller.
+//
+// MONEY
+//   Every monetary column is BigInt and stores an integer number of SATANG
+//   (1 THB = 100 satang). No floating point anywhere. See src/lib/money.ts for
+//   the rationale.
+//
+// TIME
+//   Every timestamp is stored in UTC (`@db.Timestamptz(3)`). Display conversion
+//   to Asia/Bangkok happens only at the presentation edge.
+//
+// SOFT DELETION
+//   Entities a user or auditor may need to see after removal carry `deletedAt`.
+//   Immutable financial records (WalletTransaction, AuditLog, LotteryResult) are
+//   never deleted — they are corrected by compensating entries.
+//
+// INDEXING
+//   Indexes below are derived from the actual query patterns in
+//   src/repositories/*, not added speculatively. See PERFORMANCE.md for the full
+//   justification of each one.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // For serverless deployments set DIRECT_URL to the unpooled connection so
+  // `prisma migrate` bypasses PgBouncer. See PERFORMANCE.md § Connections.
+  directUrl = env("DIRECT_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Identity
+// -----------------------------------------------------------------------------
+
+enum UserStatus {
+  active
+  suspended
+  pending
+  closed
+}
+
+enum RoleName {
+  user
+  support
+  finance
+  admin
+  superadmin
+}
+
+model User {
+  id                String     @id
+  username          String     @unique
+  email             String     @unique
+  phone             String     @unique
+  displayName       String
+  passwordHash      String
+  status            UserStatus @default(active)
+  lastLoginAt       DateTime?  @db.Timestamptz(3)
+  bankName          String?
+  bankAccountName   String?
+  bankAccountNumber String?
+  twoFactorEnabled  Boolean    @default(false)
+  marketingOptIn    Boolean    @default(false)
+  favoriteLotteryIds String[]  @default([])
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  roles        UserRole[]
+  wallet       Wallet?
+  transactions WalletTransaction[]
+  bets         Bet[]
+  deposits     Deposit[]
+  withdrawals  Withdrawal[]
+  notifications Notification[]
+  loginEvents  LoginEvent[]
+
+  // Admin user list is sorted newest-first and filtered by status.
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("users")
+}
+
+model Role {
+  name        RoleName   @id
+  label       String
+  description String
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  name        String           @id
+  description String
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleName       RoleName
+  permissionName String
+
+  role       Role       @relation(fields: [roleName], references: [name], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionName], references: [name], onDelete: Cascade)
+
+  @@id([roleName, permissionName])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId     String
+  roleName   RoleName
+  assignedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleName], references: [name], onDelete: Cascade)
+
+  @@id([userId, roleName])
+  @@index([roleName])
+  @@map("user_roles")
+}
+
+model LoginEvent {
+  id        String   @id
+  userId    String
+  ip        String
+  userAgent String
+  success   Boolean
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("login_events")
+}
+
+// -----------------------------------------------------------------------------
+// Wallet — ledger based
+// -----------------------------------------------------------------------------
+
+enum WalletTxType {
+  deposit
+  withdraw
+  bet
+  win
+  refund
+  adjustment
+  hold
+  release
+}
+
+enum WalletTxStatus {
+  pending
+  completed
+  failed
+  cancelled
+}
+
+model Wallet {
+  id       String @id
+  userId   String @unique
+  /// Spendable balance in satang. Invariant: equals the sum of every completed
+  /// ledger row for this wallet. Verified by tests/integration/ledger.test.ts.
+  balance  BigInt @default(0)
+  /// Funds reserved for pending withdrawals. Not spendable, still owned by user.
+  held     BigInt @default(0)
+  currency String @default("THB")
+  /// Optimistic-concurrency token. Every mutation does
+  /// `UPDATE ... WHERE id = ? AND version = ?` and retries on 0 rows affected.
+  version  Int    @default(0)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id            String         @id
+  walletId      String
+  userId        String
+  type          WalletTxType
+  /// Signed satang: positive credits the wallet, negative debits it.
+  amount        BigInt
+  balanceBefore BigInt
+  balanceAfter  BigInt
+  status        WalletTxStatus @default(completed)
+  referenceId   String?
+  referenceType String?
+  description   String
+  completedAt   DateTime?      @db.Timestamptz(3)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Primary read pattern: a user's ledger, newest first.
+  @@index([userId, createdAt(sort: Desc)])
+  // Admin transaction browser filters by type then sorts by time.
+  @@index([type, createdAt(sort: Desc)])
+  // Reverse lookup from a bet / deposit / withdrawal to its ledger rows.
+  @@index([referenceType, referenceId])
+  @@map("wallet_transactions")
+}
+
+// -----------------------------------------------------------------------------
+// Lottery catalogue
+// -----------------------------------------------------------------------------
+
+enum LotteryStatus {
+  active
+  inactive
+}
+
+enum RoundStatus {
+  scheduled
+  open
+  closed
+  resulted
+  settled
+  cancelled
+}
+
+model Lottery {
+  id           String        @id
+  name         String
+  nameTh       String
+  slug         String        @unique
+  country      String
+  countryCode  String
+  timezone     String
+  description  String
+  status       LotteryStatus @default(active)
+  sortOrder    Int           @default(0)
+  betTypeCodes String[]      @default([])
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  rounds  LotteryRound[]
+  rates   PayoutRate[]
+  bets    Bet[]
+  results LotteryResult[]
+
+  @@index([status, sortOrder])
+  @@map("lotteries")
+}
+
+model LotteryRound {
+  id        String      @id
+  lotteryId String
+  roundCode String
+  openAt    DateTime    @db.Timestamptz(3)
+  closeAt   DateTime    @db.Timestamptz(3)
+  resultAt  DateTime    @db.Timestamptz(3)
+  status    RoundStatus @default(scheduled)
+  settledAt DateTime?   @db.Timestamptz(3)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  lottery Lottery        @relation(fields: [lotteryId], references: [id], onDelete: Cascade)
+  bets    Bet[]
+  result  LotteryResult?
+
+  @@unique([lotteryId, roundCode])
+  // "Current / next round for this lottery" and "rounds closing soon".
+  @@index([lotteryId, closeAt])
+  // Settlement worker scans rounds by status.
+  @@index([status, resultAt])
+  @@map("lottery_rounds")
+}
+
+enum MatchStrategy {
+  exact_top_3       @map("exact-top-3")
+  permutation_top_3 @map("permutation-top-3")
+  exact_top_2       @map("exact-top-2")
+  exact_bottom_2    @map("exact-bottom-2")
+  running_top       @map("running-top")
+  running_bottom    @map("running-bottom")
+}
+
+model BetType {
+  id            String        @id
+  code          String        @unique
+  name          String
+  nameTh        String
+  digitLength   Int
+  matchStrategy MatchStrategy
+  minBet        BigInt
+  maxBet        BigInt
+  maxPerNumber  BigInt
+  isActive      Boolean       @default(true)
+  sortOrder     Int           @default(0)
+  description   String        @default("")
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  rates PayoutRate[]
+
+  @@index([isActive, sortOrder])
+  @@map("bet_types")
+}
+
+model PayoutRate {
+  id            String    @id
+  betTypeCode   String
+  /// NULL = platform default rate applied to every lottery.
+  lotteryId     String?
+  /// Payout multiple x1000, so x92.5 is stored exactly as 92500.
+  rateMilli     Int
+  effectiveFrom DateTime  @db.Timestamptz(3)
+  effectiveTo   DateTime? @db.Timestamptz(3)
+  isActive      Boolean   @default(true)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  betType BetType  @relation(fields: [betTypeCode], references: [code], onDelete: Cascade)
+  lottery Lottery? @relation(fields: [lotteryId], references: [id], onDelete: Cascade)
+
+  // Rate resolution: most specific active row for (lottery, betType) at a time.
+  @@index([betTypeCode, lotteryId, isActive, effectiveFrom(sort: Desc)])
+  @@map("payout_rates")
+}
+
+// -----------------------------------------------------------------------------
+// Bets
+// -----------------------------------------------------------------------------
+
+enum BetStatus {
+  pending
+  confirmed
+  won
+  lost
+  cancelled
+  void
+}
+
+model Bet {
+  id                   String    @id
+  reference            String    @unique
+  userId               String
+  lotteryId            String
+  roundId              String
+  status               BetStatus @default(confirmed)
+  totalStake           BigInt
+  totalPotentialPayout BigInt
+  totalPayout          BigInt    @default(0)
+  settledAt            DateTime? @db.Timestamptz(3)
+  idempotencyKey       String?
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lottery Lottery      @relation(fields: [lotteryId], references: [id], onDelete: Cascade)
+  round   LotteryRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  items   BetItem[]
+
+  // User bet history.
+  @@index([userId, createdAt(sort: Desc)])
+  // Settlement: eligible bets for a round. Also powers admin round reports.
+  @@index([roundId, status])
+  @@index([lotteryId, createdAt(sort: Desc)])
+  @@map("bets")
+}
+
+model BetItem {
+  id              String    @id
+  betId           String
+  betTypeCode     String
+  number          String
+  stake           BigInt
+  /// Rate captured at placement. Configuration changes never alter settled odds.
+  rateAtBet       Int
+  potentialPayout BigInt
+  status          BetStatus @default(confirmed)
+  payout          BigInt    @default(0)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+
+  bet Bet @relation(fields: [betId], references: [id], onDelete: Cascade)
+
+  @@index([betId])
+  // Exposure report: total stake on a number for a bet type.
+  @@index([betTypeCode, number])
+  @@map("bet_items")
+}
+
+// -----------------------------------------------------------------------------
+// Results
+// -----------------------------------------------------------------------------
+
+model LotteryResult {
+  id               String   @id
+  lotteryId        String
+  roundId          String   @unique
+  top3             String
+  top2             String
+  bottom2          String
+  announcedAt      DateTime @db.Timestamptz(3)
+  enteredByUserId  String?
+  isFinal          Boolean  @default(true)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  lottery Lottery      @relation(fields: [lotteryId], references: [id], onDelete: Cascade)
+  round   LotteryRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  // Public results page: latest per lottery.
+  @@index([lotteryId, announcedAt(sort: Desc)])
+  @@index([announcedAt(sort: Desc)])
+  @@map("lottery_results")
+}
+
+// -----------------------------------------------------------------------------
+// Cashier
+// -----------------------------------------------------------------------------
+
+enum DepositMethod {
+  qr
+  bank_transfer @map("bank-transfer")
+}
+
+enum DepositStatus {
+  pending
+  completed
+  rejected
+  cancelled
+}
+
+enum WithdrawalStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+model Deposit {
+  id                  String        @id
+  reference           String        @unique
+  userId              String
+  amount              BigInt
+  method              DepositMethod
+  status              DepositStatus @default(pending)
+  walletTransactionId String?
+  reviewedByUserId    String?
+  reviewedAt          DateTime?     @db.Timestamptz(3)
+  note                String?
+  idempotencyKey      String?
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("deposits")
+}
+
+model Withdrawal {
+  id                      String           @id
+  reference               String           @unique
+  userId                  String
+  amount                  BigInt
+  bankName                String
+  bankAccountNumber       String
+  bankAccountName         String
+  status                  WithdrawalStatus @default(pending)
+  holdTransactionId       String?
+  settlementTransactionId String?
+  reviewedByUserId        String?
+  reviewedAt              DateTime?        @db.Timestamptz(3)
+  note                    String?
+  idempotencyKey          String?
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("withdrawals")
+}
+
+// -----------------------------------------------------------------------------
+// Notifications, audit, idempotency
+// -----------------------------------------------------------------------------
+
+enum NotificationType {
+  system
+  wallet
+  deposit
+  withdrawal
+  bet
+  result
+  promotion
+}
+
+model Notification {
+  id     String           @id
+  userId String
+  type   NotificationType
+  title  String
+  body   String
+  href   String?
+  readAt DateTime?        @db.Timestamptz(3)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Bell badge counts unread; list is newest-first.
+  @@index([userId, readAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id
+  actorId    String?
+  actorRole  String
+  action     String
+  resource   String
+  resourceId String?
+  before     Json?
+  after      Json?
+  ip         String
+  userAgent  String
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([resource, resourceId])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+enum IdempotencyStatus {
+  in_progress @map("in-progress")
+  completed
+}
+
+model IdempotencyRecord {
+  key          String            @id
+  scope        String
+  userId       String?
+  requestHash  String
+  status       IdempotencyStatus @default(in_progress)
+  responseJson String?
+  createdAt    DateTime          @default(now()) @db.Timestamptz(3)
+  completedAt  DateTime?         @db.Timestamptz(3)
+  /// Rows are purged after this instant by a scheduled job.
+  expiresAt    DateTime          @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@index([scope, userId])
+  @@map("idempotency_records")
+}
